@@ -970,7 +970,7 @@
 
         <div class="setting-item">
             <label class="setting-label">Search Engine</label>
-            <select class="ios-select" id="searchEngine">
+            <select class="ios-select" id="searchEngine" onchange="saveSettings()">
                 <option value="google">Google</option>
                 <option value="bing">Bing</option>
                 <option value="duckduckgo">DuckDuckGo</option>
@@ -1143,6 +1143,75 @@
         let customScripts = [];
         let activeScripts = new Set();
 
+        function saveSettings() {
+            const settings = {
+                title: document.getElementById('titleInput').value,
+                searchEngine: document.getElementById('searchEngine').value,
+                darkMode: document.body.classList.contains('dark-mode'),
+                visualizerEnabled: document.getElementById('visualizerWidgetToggle').classList.contains('active'),
+                customScripts: customScripts,
+                activeScripts: Array.from(activeScripts)
+            };
+            localStorage.setItem('landrSettings', JSON.stringify(settings));
+        }
+
+        function loadSettings() {
+            const saved = localStorage.getItem('landrSettings');
+            if (saved) {
+                try {
+                    const settings = JSON.parse(saved);
+                    
+                    if (settings.title) {
+                        document.getElementById('titleInput').value = settings.title;
+                        document.getElementById('mainTitle').textContent = settings.title;
+                        document.title = settings.title;
+                    }
+                    
+                    if (settings.searchEngine) {
+                        document.getElementById('searchEngine').value = settings.searchEngine;
+                    }
+                    
+                    if (settings.darkMode) {
+                        document.body.classList.add('dark-mode');
+                    }
+                    
+                    if (settings.visualizerEnabled !== undefined) {
+                        const toggle = document.getElementById('visualizerWidgetToggle');
+                        const widget = document.getElementById('visualizerWidget');
+                        if (settings.visualizerEnabled) {
+                            toggle.classList.add('active');
+                            widget.style.display = 'block';
+                        } else {
+                            toggle.classList.remove('active');
+                            widget.style.display = 'none';
+                        }
+                    }
+                    
+                    if (settings.customScripts) {
+                        customScripts = settings.customScripts;
+                        updateScriptList();
+                    }
+                    
+                    if (settings.activeScripts) {
+                        settings.activeScripts.forEach(id => {
+                            const script = customScripts.find(s => s.id === id);
+                            if (script) {
+                                try {
+                                    eval(script.content);
+                                    activeScripts.add(id);
+                                } catch (error) {
+                                    console.error('Error loading script:', error);
+                                }
+                            }
+                        });
+                        updateScriptList();
+                    }
+                } catch (error) {
+                    console.error('Error loading settings:', error);
+                }
+            }
+        }
+
         const LandrAPI = {
             showNotification: function(message, type = 'info') {
                 const container = document.getElementById('notificationContainer');
@@ -1265,6 +1334,7 @@
 
         function toggleTheme() {
             document.body.classList.toggle('dark-mode');
+            saveSettings();
         }
 
         function toggleSettings() {
@@ -1275,6 +1345,7 @@
             const newTitle = document.getElementById('titleInput').value;
             document.getElementById('mainTitle').textContent = newTitle;
             document.title = newTitle;
+            saveSettings();
         }
 
         function toggleVisualizerWidget() {
@@ -1293,6 +1364,7 @@
                     toggleMicrophone();
                 }
             }
+            saveSettings();
         }
 
         function toggleDevSection() {
@@ -1324,6 +1396,7 @@
                 
                 customScripts.push(scriptObj);
                 updateScriptList();
+                saveSettings();
                 LandrAPI.showNotification(`Script "${file.name}" uploaded!`, 'success');
             };
             reader.readAsText(file);
@@ -1372,12 +1445,14 @@
             }
             
             updateScriptList();
+            saveSettings();
         }
 
         function removeScript(id) {
             customScripts = customScripts.filter(s => s.id !== id);
             activeScripts.delete(id);
             updateScriptList();
+            saveSettings();
             LandrAPI.showNotification('Script removed', 'info');
         }
 
@@ -1576,6 +1651,7 @@
         createParticles();
         setInterval(updateClock, 1000);
         updateClock();
+        loadSettings();
     </script>
 </body>
 </html>
