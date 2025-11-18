@@ -275,8 +275,7 @@
   addSettingsToggle();
   
   if (typeof LandrAPI !== 'undefined') {
-    LandrAPI.showNotification('Flappy Bird widget loaded!', 'success');
+      console.log('Flappy Bird widget script loaded successfully!');
   }
-  
-  console.log('Flappy Bird widget script loaded successfully!');
+
 })();
