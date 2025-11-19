@@ -91,9 +91,5 @@
 
   // Initialize
   loadTodos();
-  
-  if (typeof LandrAPI !== 'undefined') {
-  console.log(`Loaded ${todos.length} persistent tasks.`);
-  }
 
 })();
