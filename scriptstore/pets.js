@@ -1,5 +1,5 @@
 // Name: Desktop Pet
-// Description: Adopt a retro interactive pet (Penguin, Panda, etc.) using Ruffle emulation.
+// Description: Adopt a retro interactive pet (Penguin, Panda, Pig, etc.) using Ruffle emulation.
 // Author: Landr Addon
 
 (function() {
@@ -9,11 +9,11 @@
     // Ruffle is required because BunnyHeroLabs uses Flash (.swf)
     const RUFFLE_SCRIPT = 'https://unpkg.com/@ruffle-rs/ruffle';
 
-    // We must use the Wayback Machine because the original site often returns 404s for hotlinked SWFs
-    // Timestamp 2013 is stable for these assets.
+    // Wayback Machine prefix for stable asset loading (2013 epoch)
     const ARCHIVE_PREFIX = 'https://web.archive.org/web/20130000000000if_/';
     const BASE_URL = 'http://bunnyherolabs.com/adopt/swf/';
 
+    // Extended list of pets
     const PET_PRESETS = {
         'penguin': 'penguin.swf',
         'panda': 'panda.swf',
@@ -24,7 +24,10 @@
         'lion': 'lion.swf',
         'sloth': 'sloth.swf',
         'turtle': 'turtle.swf',
-        'horse': 'horse.swf'
+        'horse': 'horse.swf',
+        'pig': 'pig.swf',
+        'bear': 'bear.swf',
+        'hedgehog': 'hedgehog.swf'
     };
 
     // --- Ruffle Loader ---
@@ -62,10 +65,11 @@
         widget.className = 'widget';
         widget.style.cssText = `
             position: relative;
-            min-height: 350px; /* Increased height for Flash container */
+            min-height: 350px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            grid-row: span 2; /* Give it more room */
         `;
 
         const visualizer = document.getElementById('visualizerWidget');
@@ -76,6 +80,69 @@
         }
 
         renderWidgetContent();
+    }
+
+    // --- Parsing Logic ---
+    function parseBunnyHeroCode(input) {
+        try {
+            // 1. Search for the Base64 encoded string common in BunnyHero embed codes
+            // Matches: /adopt/i/[BASE64].swf OR showpet.php?b=[BASE64] OR petimage/[BASE64].png
+            const b64Regex = /(?:\/adopt\/i\/|showpet\.php\?b=|petimage\/)([a-zA-Z0-9+/=]+)/;
+            const match = input.match(b64Regex);
+
+            if (match && match[1]) {
+                const decoded = atob(match[1]);
+                // Decoded string looks like: mc=pig.swf&clr=0xfddbfa&cn=pet name&an=adopter name
+                
+                // Parse query string
+                const params = new URLSearchParams(decoded);
+                
+                const mc = params.get('mc'); // master clip (swf file)
+                if (!mc) throw new Error('No SWF found in code');
+
+                // Extract other params to pass as FlashVars
+                const flashVars = [];
+                params.forEach((value, key) => {
+                    if (key !== 'mc') {
+                        flashVars.push(`${key}=${encodeURIComponent(value)}`);
+                    }
+                });
+                // Add standard mapping for reliability
+                if (params.has('cn')) flashVars.push(`name=${encodeURIComponent(params.get('cn'))}`);
+                if (params.has('an')) flashVars.push(`msg=${encodeURIComponent('Owner: ' + params.get('an'))}`);
+
+                return {
+                    swfUrl: ARCHIVE_PREFIX + BASE_URL + mc,
+                    flashVars: flashVars.join('&'),
+                    type: 'custom'
+                };
+            }
+
+            // 2. Fallback: Classic Embed/Object tag parsing (Simple src extraction)
+            if (input.includes('<embed') || input.includes('<object')) {
+                const srcMatch = input.match(/src=["'](https?:\/\/[^"']+\.swf)["']/);
+                if (srcMatch) {
+                    let url = srcMatch[1];
+                    // Fix URL to use archive if it points to dead site
+                    if (url.includes('bunnyherolabs.com') && !url.includes('archive.org')) {
+                        url = url.replace(/https?:\/\/bunnyherolabs\.com\/adopt\/swf\//, ''); // remove prefix
+                        // If regex failed to strip cleanly, just grab filename if possible, else fallback
+                        const filename = url.split('/').pop();
+                        url = ARCHIVE_PREFIX + BASE_URL + filename;
+                    }
+                    return {
+                        swfUrl: url,
+                        flashVars: 'name=My Pet&msg=Hello',
+                        type: 'legacy'
+                    };
+                }
+            }
+
+            return null;
+        } catch (e) {
+            console.error('Error parsing pet code:', e);
+            return null;
+        }
     }
 
     // --- Rendering ---
@@ -101,10 +168,10 @@
             </div>
 
             <!-- Quick Adopt Form -->
-            <div id="viewQuick" style="display: flex; flex-direction: column; gap: 15px;">
+            <div id="viewQuick" style="display: flex; flex-direction: column; gap: 15px; height: 100%;">
                 <div>
                     <label style="display: block; font-size: 0.9rem; margin-bottom: 5px; opacity: 0.8;">Choose Species</label>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px; max-height: 150px; overflow-y: auto; padding-right: 5px;">
                         ${Object.keys(PET_PRESETS).map(pet => `
                             <button class="species-btn" data-pet="${pet}" style="
                                 padding: 8px;
@@ -114,7 +181,7 @@
                                 border-radius: 8px;
                                 cursor: pointer;
                                 text-transform: capitalize;
-                                font-size: 0.9rem;
+                                font-size: 0.8rem;
                                 transition: all 0.2s;
                             ">${pet}</button>
                         `).join('')}
@@ -131,18 +198,19 @@
                         color: white;
                     ">
                 </div>
-                <button id="btnAdoptQuick" class="add-btn" style="margin-top: 10px;">Adopt Now!</button>
+                <button id="btnAdoptQuick" class="add-btn" style="margin-top: auto;">Adopt Now!</button>
             </div>
 
             <!-- Custom Form -->
             <div id="viewCustom" style="display: none; flex-direction: column; gap: 15px;">
-                <p style="font-size: 0.85rem; opacity: 0.8; line-height: 1.4;">
-                    To fully customize (colors, items):<br>
-                    1. Visit the <a href="https://web.archive.org/web/20130807091245/http://bunnyherolabs.com/adopt/" target="_blank" style="color: var(--accent-color); text-decoration: underline;">Archived Creator</a>.<br>
-                    2. Create your pet and copy the HTML code.<br>
-                    3. Paste it below (we will fix the broken links automatically).
+                <p style="font-size: 0.85rem; opacity: 0.8; line-height: 1.4; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px;">
+                    <strong>How to customize:</strong><br>
+                    1. Go to the <a href="https://web.archive.org/web/20130807091245/http://bunnyherolabs.com/adopt/" target="_blank" style="color: var(--accent-color); text-decoration: underline;">Archived Creation Page</a>.<br>
+                    2. Create your pet (choose color, name).<br>
+                    3. On the "Finish" page, copy the <strong>HTML Code</strong> or the <strong>Direct Link</strong>.<br>
+                    4. Paste it below. We will decode it and fix the broken links.
                 </p>
-                <textarea id="petEmbedInput" placeholder="Paste <object> or <embed> code here..." style="
+                <textarea id="petEmbedInput" placeholder="Paste code here (e.g. <iframe...> or https://.../showpet.php?...)" style="
                     width: 100%;
                     height: 80px;
                     padding: 10px;
@@ -157,7 +225,7 @@
             </div>
         `;
 
-        // Bind Tab Logic
+        // Tab Switching
         const tabQuick = widget.querySelector('#tabQuick');
         const tabCustom = widget.querySelector('#tabCustom');
         const viewQuick = widget.querySelector('#viewQuick');
@@ -166,10 +234,8 @@
         const switchTab = (isQuick) => {
             tabQuick.style.opacity = isQuick ? '1' : '0.6';
             tabQuick.style.borderBottom = isQuick ? '2px solid var(--accent-color)' : 'none';
-            
             tabCustom.style.opacity = !isQuick ? '1' : '0.6';
             tabCustom.style.borderBottom = !isQuick ? '2px solid var(--accent-color)' : 'none';
-
             viewQuick.style.display = isQuick ? 'flex' : 'none';
             viewCustom.style.display = !isQuick ? 'flex' : 'none';
         };
@@ -177,48 +243,42 @@
         tabQuick.onclick = () => switchTab(true);
         tabCustom.onclick = () => switchTab(false);
 
-        // Bind Species Selection
+        // Species Selection
         let selectedSpecies = null;
-        widget.querySelectorAll('.species-btn').forEach(btn => {
+        const speciesBtns = widget.querySelectorAll('.species-btn');
+        speciesBtns.forEach(btn => {
             btn.onclick = () => {
-                widget.querySelectorAll('.species-btn').forEach(b => b.style.background = 'rgba(255,255,255,0.05)');
+                speciesBtns.forEach(b => b.style.background = 'rgba(255,255,255,0.05)');
                 btn.style.background = 'var(--accent-color)';
                 selectedSpecies = btn.dataset.pet;
             };
         });
 
-        // Bind Action Buttons
+        // Quick Adopt Handler
         widget.querySelector('#btnAdoptQuick').onclick = () => {
             if (!selectedSpecies) {
                 LandrAPI.showNotification('Please select a pet species!', 'warning');
                 return;
             }
             const name = widget.querySelector('#petNameInput').value.trim() || 'My Pet';
-            // Use the Archive URL
             const url = ARCHIVE_PREFIX + BASE_URL + PET_PRESETS[selectedSpecies];
+            const flashVars = `name=${encodeURIComponent(name)}&msg=${encodeURIComponent('Hello!')}&cn=${encodeURIComponent(name)}`;
             
-            const embedHTML = `
-                <embed 
-                    src="${url}" 
-                    width="250" 
-                    height="300" 
-                    quality="high" 
-                    wmode="transparent" 
-                    flashvars="name=${encodeURIComponent(name)}&msg=${encodeURIComponent('Hello!')}"
-                    type="application/x-shockwave-flash">
-                </embed>
-            `;
-            
-            savePet(embedHTML);
+            savePetConfig(url, flashVars);
         };
 
+        // Custom Adopt Handler
         widget.querySelector('#btnAdoptCustom').onclick = () => {
-            const code = widget.querySelector('#petEmbedInput').value.trim();
-            if (!code.includes('bunnyherolabs') && !code.includes('archive.org')) {
-                LandrAPI.showNotification('Invalid code. Must be from BunnyHeroLabs.', 'warning');
-                return;
+            const input = widget.querySelector('#petEmbedInput').value.trim();
+            if (!input) return;
+
+            const parsed = parseBunnyHeroCode(input);
+            
+            if (parsed) {
+                savePetConfig(parsed.swfUrl, parsed.flashVars);
+            } else {
+                LandrAPI.showNotification('Could not recognize pet code. Check the format.', 'error');
             }
-            savePet(code);
         };
     }
 
@@ -246,7 +306,7 @@
                 min-height: 300px;
                 position: relative;
             ">
-                <div style="color: white; opacity: 0.7; position: absolute;">Loading Pet...</div>
+                <div style="color: white; opacity: 0.7; position: absolute; pointer-events: none;">Loading Pet...</div>
             </div>
         `;
 
@@ -261,38 +321,31 @@
             const container = widget.querySelector('#petContainer');
             if (!container) return;
             
-            container.innerHTML = config.html;
+            // Create Ruffle Embed
+            // We construct the embed HTML manually to ensure parameters are passed correctly to the emulator
+            const embedHTML = `
+                <embed 
+                    src="${config.swf}" 
+                    width="100%" 
+                    height="100%" 
+                    quality="high" 
+                    wmode="transparent" 
+                    flashvars="${config.flashVars}"
+                    name="bunnyheropet"
+                    type="application/x-shockwave-flash"
+                    pluginspage="http://www.macromedia.com/go/getflashplayer">
+                </embed>
+            `;
+            
+            container.innerHTML = embedHTML;
         });
     }
 
-    function savePet(htmlContent) {
-        // --- AUTO-REPAIR BROKEN URLs ---
-        // If the user pastes code from the live site (which 404s), we inject the Archive prefix.
-        
-        let cleanHtml = htmlContent;
-        
-        // 1. Ensure https
-        cleanHtml = cleanHtml.replace(/http:\/\/bunnyherolabs/g, 'https://bunnyherolabs');
-        
-        // 2. If it points to bunnyherolabs directly, prepend the Wayback Machine prefix
-        // We use a regex to find src="..." and check if it lacks archive.org
-        const urlRegex = /(src|value)=["'](https?:\/\/bunnyherolabs\.com\/[^"']+)["']/g;
-        
-        cleanHtml = cleanHtml.replace(urlRegex, (match, attr, url) => {
-            if (!url.includes('archive.org')) {
-                return `${attr}="${ARCHIVE_PREFIX}${url}"`;
-            }
-            return match;
-        });
-
-        // 3. Force wmode=transparent if missing (fixes layering issues)
-        if (!cleanHtml.includes('wmode')) {
-             cleanHtml = cleanHtml.replace('<embed ', '<embed wmode="transparent" ');
-        }
-
+    function savePetConfig(swfUrl, flashVars) {
         const config = {
             active: true,
-            html: cleanHtml,
+            swf: swfUrl,
+            flashVars: flashVars,
             date: Date.now()
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
