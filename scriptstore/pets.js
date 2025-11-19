@@ -1,534 +1,231 @@
 (function() {
-  const STORAGE_KEY = 'landrInteractivePet';
-  const PET_DATA_KEY = 'landrPetData';
+  const STORAGE_KEY = 'landrBunnyHeroPet';
+  const PET_CONFIG_KEY = 'landrBunnyHeroPetConfig';
   
   // Global Pet API for extensibility
   window.LandrPetAPI = window.LandrPetAPI || {
-    pets: {},
     currentPet: null,
+    petTypes: {},
     
-    registerPet: function(id, petConfig) {
-      this.pets[id] = petConfig;
-      console.log(`Pet registered: ${id}`);
-    },
-    
-    getPet: function(id) {
-      return this.pets[id];
+    registerPetType: function(id, config) {
+      this.petTypes[id] = config;
+      console.log(`Pet type registered: ${id}`);
     },
     
     getCurrentPet: function() {
       return this.currentPet;
     },
     
-    feedPet: function() {
+    adoptPet: function(petType, petName, ownerName, color) {
       if (this.currentPet) {
-        this.currentPet.feed();
+        this.removePet();
+      }
+      
+      this.currentPet = {
+        type: petType,
+        name: petName,
+        owner: ownerName,
+        color: color
+      };
+      
+      this.embedPet(petType, petName, ownerName, color);
+      this.savePet();
+      
+      const selector = document.getElementById('petAdoptionForm');
+      const display = document.getElementById('petDisplay');
+      if (selector) selector.style.display = 'none';
+      if (display) display.style.display = 'block';
+    },
+    
+    embedPet: function(petType, petName, ownerName, color) {
+      const container = document.getElementById('petContainer');
+      if (!container) return;
+      
+      // Clean color hex (remove # if present)
+      const cleanColor = color.replace('#', '');
+      
+      // BunnyHero Labs embed URL structure
+      const swfFile = this.petTypes[petType]?.swfFile || 'bunny';
+      const embedUrl = `https://petswf.bunnyherolabs.com/adopt/swf/${swfFile}`;
+      
+      // Create iframe embed (works better than Flash/Ruffle in modern browsers)
+      const iframeUrl = `https://bunnyherolabs.com/adopt/showpet.php?cn=${encodeURIComponent(petName)}&an=${encodeURIComponent(ownerName)}&mc=${swfFile}.swf&clr=0x${cleanColor}`;
+      
+      container.innerHTML = `
+        <div style="width: 250px; margin: 0 auto; text-align: center;">
+          <iframe src="${iframeUrl}" width="250" height="300" frameborder="0" scrolling="no" style="border-radius: 15px; background: transparent;"></iframe>
+          <div style="margin-top: 10px; font-size: 0.85rem; opacity: 0.7;">
+            <a href="https://bunnyherolabs.com/adopt/" target="_blank" style="color: var(--text-color); text-decoration: underline;">powered by bunnyhero labs</a>
+          </div>
+        </div>
+      `;
+    },
+    
+    removePet: function() {
+      this.currentPet = null;
+      localStorage.removeItem(PET_CONFIG_KEY);
+      
+      const container = document.getElementById('petContainer');
+      if (container) container.innerHTML = '';
+      
+      const selector = document.getElementById('petAdoptionForm');
+      const display = document.getElementById('petDisplay');
+      if (selector) selector.style.display = 'block';
+      if (display) display.style.display = 'none';
+    },
+    
+    savePet: function() {
+      if (this.currentPet) {
+        localStorage.setItem(PET_CONFIG_KEY, JSON.stringify(this.currentPet));
       }
     },
     
-    petPet: function() {
-      if (this.currentPet) {
-        this.currentPet.pet();
+    loadPet: function() {
+      const saved = localStorage.getItem(PET_CONFIG_KEY);
+      if (saved) {
+        try {
+          const pet = JSON.parse(saved);
+          this.currentPet = pet;
+          this.embedPet(pet.type, pet.name, pet.owner, pet.color);
+          
+          const selector = document.getElementById('petAdoptionForm');
+          const display = document.getElementById('petDisplay');
+          if (selector) selector.style.display = 'none';
+          if (display) display.style.display = 'block';
+          
+          return true;
+        } catch (e) {
+          console.error('Error loading pet:', e);
+        }
       }
-    },
-    
-    playWithPet: function() {
-      if (this.currentPet) {
-        this.currentPet.play();
-      }
-    },
-    
-    customAction: function(actionName, ...args) {
-      if (this.currentPet && this.currentPet.customActions && this.currentPet.customActions[actionName]) {
-        this.currentPet.customActions[actionName](...args);
-      }
+      return false;
     }
   };
   
-  // Base Pet Class
-  class Pet {
-    constructor(type, container) {
-      this.type = type;
-      this.container = container;
-      this.element = null;
-      this.x = 100;
-      this.y = 100;
-      this.targetX = null;
-      this.targetY = null;
-      this.speed = 2;
-      this.animationFrame = null;
-      this.isMoving = false;
-      this.direction = 'right';
-      this.stats = {
-        hunger: 100,
-        happiness: 100,
-        energy: 100
-      };
-      this.lastUpdate = Date.now();
-      this.customActions = {};
-      
-      this.loadStats();
-      this.create();
-      this.startAutoMovement();
-      this.startStatDecay();
-    }
-    
-    create() {
-      this.element = document.createElement('div');
-      this.element.style.cssText = `
-        position: fixed;
-        width: 60px;
-        height: 60px;
-        cursor: pointer;
-        user-select: none;
-        z-index: 9998;
-        transition: transform 0.3s ease;
-        pointer-events: all;
-      `;
-      this.element.innerHTML = this.getSprite();
-      this.element.addEventListener('click', () => this.onClick());
-      this.container.appendChild(this.element);
-      this.updatePosition();
-    }
-    
-    getSprite() {
-      // Override in subclasses
-      return '🐾';
-    }
-    
-    onClick() {
-      this.pet();
-    }
-    
-    updatePosition() {
-      if (this.element) {
-        this.element.style.left = this.x + 'px';
-        this.element.style.top = this.y + 'px';
-        this.element.style.transform = `scaleX(${this.direction === 'left' ? -1 : 1})`;
-      }
-    }
-    
-    moveTo(targetX, targetY) {
-      this.targetX = targetX;
-      this.targetY = targetY;
-      this.isMoving = true;
-    }
-    
-    update() {
-      if (this.isMoving && this.targetX !== null && this.targetY !== null) {
-        const dx = this.targetX - this.x;
-        const dy = this.targetY - this.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance < this.speed) {
-          this.x = this.targetX;
-          this.y = this.targetY;
-          this.isMoving = false;
-          this.targetX = null;
-          this.targetY = null;
-        } else {
-          this.x += (dx / distance) * this.speed;
-          this.y += (dy / distance) * this.speed;
-          this.direction = dx > 0 ? 'right' : 'left';
-        }
-        
-        this.updatePosition();
-      }
-      
-      this.animationFrame = requestAnimationFrame(() => this.update());
-    }
-    
-    startAutoMovement() {
-      this.update();
-      
-      setInterval(() => {
-        if (!this.isMoving && this.stats.energy > 20) {
-          const margin = 100;
-          const maxX = window.innerWidth - 60 - margin;
-          const maxY = window.innerHeight - 60 - margin;
-          const newX = Math.random() * maxX + margin;
-          const newY = Math.random() * maxY + margin;
-          this.moveTo(newX, newY);
-        }
-      }, 5000);
-    }
-    
-    startStatDecay() {
-      setInterval(() => {
-        const now = Date.now();
-        const elapsed = (now - this.lastUpdate) / 1000 / 60; // minutes
-        
-        this.stats.hunger = Math.max(0, this.stats.hunger - elapsed * 0.5);
-        this.stats.happiness = Math.max(0, this.stats.happiness - elapsed * 0.3);
-        this.stats.energy = Math.max(0, this.stats.energy - elapsed * 0.2);
-        
-        this.lastUpdate = now;
-        this.saveStats();
-        this.updateStatsDisplay();
-        
-        // Auto-sleep if energy is low
-        if (this.stats.energy < 20) {
-          this.speed = 0.5;
-        } else {
-          this.speed = 2;
-        }
-      }, 60000); // Every minute
-    }
-    
-    feed() {
-      this.stats.hunger = Math.min(100, this.stats.hunger + 30);
-      this.stats.happiness = Math.min(100, this.stats.happiness + 10);
-      this.showEmoji('🍖');
-      this.saveStats();
-      this.updateStatsDisplay();
-    }
-    
-    pet() {
-      this.stats.happiness = Math.min(100, this.stats.happiness + 20);
-      this.showEmoji('❤️');
-      this.saveStats();
-      this.updateStatsDisplay();
-    }
-    
-    play() {
-      if (this.stats.energy < 20) {
-        this.showEmoji('😴');
-        return;
-      }
-      this.stats.happiness = Math.min(100, this.stats.happiness + 25);
-      this.stats.energy = Math.max(0, this.stats.energy - 15);
-      this.showEmoji('⚽');
-      
-      // Make pet jump around
-      const jumps = 5;
-      for (let i = 0; i < jumps; i++) {
-        setTimeout(() => {
-          const jumpX = this.x + (Math.random() - 0.5) * 100;
-          const jumpY = this.y + (Math.random() - 0.5) * 100;
-          this.moveTo(
-            Math.max(100, Math.min(window.innerWidth - 160, jumpX)),
-            Math.max(100, Math.min(window.innerHeight - 160, jumpY))
-          );
-        }, i * 500);
-      }
-      
-      this.saveStats();
-      this.updateStatsDisplay();
-    }
-    
-    showEmoji(emoji) {
-      const emojiEl = document.createElement('div');
-      emojiEl.textContent = emoji;
-      emojiEl.style.cssText = `
-        position: fixed;
-        left: ${this.x + 30}px;
-        top: ${this.y - 20}px;
-        font-size: 2rem;
-        z-index: 9999;
-        pointer-events: none;
-        animation: floatUp 1s ease-out forwards;
-      `;
-      
-      document.body.appendChild(emojiEl);
-      setTimeout(() => emojiEl.remove(), 1000);
-    }
-    
-    saveStats() {
-      const data = {
-        type: this.type,
-        stats: this.stats,
-        lastUpdate: this.lastUpdate
-      };
-      localStorage.setItem(PET_DATA_KEY, JSON.stringify(data));
-    }
-    
-    loadStats() {
-      const saved = localStorage.getItem(PET_DATA_KEY);
-      if (saved) {
-        try {
-          const data = JSON.parse(saved);
-          if (data.type === this.type) {
-            this.stats = data.stats;
-            this.lastUpdate = data.lastUpdate;
-          }
-        } catch (e) {
-          console.error('Error loading pet stats:', e);
-        }
-      }
-    }
-    
-    updateStatsDisplay() {
-      const widget = document.getElementById('petWidget');
-      if (!widget) return;
-      
-      const hungerBar = widget.querySelector('.hunger-bar');
-      const happinessBar = widget.querySelector('.happiness-bar');
-      const energyBar = widget.querySelector('.energy-bar');
-      
-      if (hungerBar) hungerBar.style.width = this.stats.hunger + '%';
-      if (happinessBar) happinessBar.style.width = this.stats.happiness + '%';
-      if (energyBar) energyBar.style.width = this.stats.energy + '%';
-    }
-    
-    destroy() {
-      if (this.animationFrame) {
-        cancelAnimationFrame(this.animationFrame);
-      }
-      if (this.element) {
-        this.element.remove();
-      }
-    }
-  }
+  // Register BunnyHero Labs pet types
+  const petTypes = [
+    { id: 'bunny', name: '🐰 Bunny', swfFile: 'bunny' },
+    { id: 'cat', name: '🐱 Cat', swfFile: 'cat' },
+    { id: 'dog', name: '🐶 Dog', swfFile: 'dog' },
+    { id: 'hamster', name: '🐹 Hamster', swfFile: 'hamster' },
+    { id: 'chick', name: '🐤 Chick', swfFile: 'chick' },
+    { id: 'pig', name: '🐷 Pig', swfFile: 'pig' },
+    { id: 'fox', name: '🦊 Fox', swfFile: 'fox' },
+    { id: 'sheep', name: '🐑 Sheep', swfFile: 'sheep' },
+    { id: 'fish', name: '🐠 Fish', swfFile: 'fish' },
+    { id: 'bird', name: '🐦 Bird', swfFile: 'bird' },
+    { id: 'monkey', name: '🐵 Monkey', swfFile: 'monkey' },
+    { id: 'penguin', name: '🐧 Penguin', swfFile: 'penguin' },
+    { id: 'hedgehog', name: '🦔 Hedgehog', swfFile: 'hedgehog' },
+    { id: 'ferret', name: '🦦 Ferret', swfFile: 'ferret' },
+    { id: 'sloth', name: '🦥 Sloth', swfFile: 'sloth' },
+    { id: 'llama', name: '🦙 Llama', swfFile: 'llama' }
+  ];
   
-  // Cat Pet
-  class CatPet extends Pet {
-    constructor(container) {
-      super('cat', container);
-      this.moodStates = ['😺', '😸', '😹', '😻', '😼'];
-    }
-    
-    getSprite() {
-      return `<div style="font-size: 3rem; line-height: 1;">🐱</div>`;
-    }
-    
-    onClick() {
-      // Cats are moody
-      if (Math.random() > 0.7) {
-        this.showEmoji('😾');
-        this.stats.happiness = Math.max(0, this.stats.happiness - 5);
-      } else {
-        this.pet();
-      }
-      this.updateStatsDisplay();
-    }
-  }
-  
-  // Dog Pet
-  class DogPet extends Pet {
-    constructor(container) {
-      super('dog', container);
-      this.speed = 2.5; // Dogs are faster
-    }
-    
-    getSprite() {
-      return `<div style="font-size: 3rem; line-height: 1;">🐶</div>`;
-    }
-    
-    onClick() {
-      // Dogs always love attention
-      this.pet();
-      this.stats.happiness = Math.min(100, this.stats.happiness + 5);
-      this.showEmoji('🦴');
-      this.updateStatsDisplay();
-    }
-    
-    play() {
-      // Dogs love playing more
-      if (this.stats.energy < 20) {
-        this.showEmoji('😴');
-        return;
-      }
-      this.stats.happiness = Math.min(100, this.stats.happiness + 35);
-      this.stats.energy = Math.max(0, this.stats.energy - 20);
-      this.showEmoji('🎾');
-      
-      const jumps = 8;
-      for (let i = 0; i < jumps; i++) {
-        setTimeout(() => {
-          const jumpX = this.x + (Math.random() - 0.5) * 150;
-          const jumpY = this.y + (Math.random() - 0.5) * 150;
-          this.moveTo(
-            Math.max(100, Math.min(window.innerWidth - 160, jumpX)),
-            Math.max(100, Math.min(window.innerHeight - 160, jumpY))
-          );
-        }, i * 400);
-      }
-      
-      this.saveStats();
-      this.updateStatsDisplay();
-    }
-  }
-  
-  // Slime Pet
-  class SlimePet extends Pet {
-    constructor(container) {
-      super('slime', container);
-      this.speed = 1.5;
-      this.bounceHeight = 0;
-      this.startBouncing();
-    }
-    
-    getSprite() {
-      return `<div style="font-size: 3rem; line-height: 1;">🟢</div>`;
-    }
-    
-    startBouncing() {
-      setInterval(() => {
-        this.bounceHeight = Math.sin(Date.now() / 200) * 10;
-        if (this.element) {
-          this.element.style.transform = `
-            scaleX(${this.direction === 'left' ? -1 : 1}) 
-            translateY(${this.bounceHeight}px)
-          `;
-        }
-      }, 50);
-    }
-    
-    onClick() {
-      this.pet();
-      // Slime jiggles
-      this.element.style.animation = 'jiggle 0.5s ease';
-      setTimeout(() => {
-        if (this.element) this.element.style.animation = '';
-      }, 500);
-    }
-    
-    feed() {
-      // Slime grows slightly when fed
-      super.feed();
-      this.element.style.transform += ' scale(1.1)';
-      setTimeout(() => {
-        if (this.element) {
-          this.element.style.transform = `scaleX(${this.direction === 'left' ? -1 : 1})`;
-        }
-      }, 1000);
-    }
-  }
-  
-  // Register default pets
-  window.LandrPetAPI.registerPet('cat', CatPet);
-  window.LandrPetAPI.registerPet('dog', DogPet);
-  window.LandrPetAPI.registerPet('slime', SlimePet);
-  
-  // Add animations
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes floatUp {
-      from {
-        opacity: 1;
-        transform: translateY(0);
-      }
-      to {
-        opacity: 0;
-        transform: translateY(-50px);
-      }
-    }
-    
-    @keyframes jiggle {
-      0%, 100% { transform: rotate(0deg); }
-      25% { transform: rotate(-5deg); }
-      75% { transform: rotate(5deg); }
-    }
-    
-    .stat-bar {
-      width: 100%;
-      height: 8px;
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 4px;
-      overflow: hidden;
-      margin-bottom: 8px;
-    }
-    
-    .stat-bar-fill {
-      height: 100%;
-      transition: width 0.3s ease;
-      border-radius: 4px;
-    }
-    
-    .hunger-bar { background: linear-gradient(90deg, #ef4444, #f97316); }
-    .happiness-bar { background: linear-gradient(90deg, #ec4899, #f59e0b); }
-    .energy-bar { background: linear-gradient(90deg, #3b82f6, #8b5cf6); }
-  `;
-  document.head.appendChild(style);
+  petTypes.forEach(pet => {
+    window.LandrPetAPI.registerPetType(pet.id, pet);
+  });
   
   function createPetWidget() {
     const contentGrid = document.querySelector('.content-grid');
-    if (!contentGrid || document.getElementById('petWidget')) return;
+    if (!contentGrid || document.getElementById('bunnyHeroPetWidget')) return;
     
     const widget = document.createElement('div');
     widget.className = 'widget';
-    widget.id = 'petWidget';
+    widget.id = 'bunnyHeroPetWidget';
     widget.innerHTML = `
-      <h2>🐾 Virtual Pet</h2>
-      <div id="petSelector" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
-        <button class="add-btn" onclick="window.LandrPetAPI._selectPet('cat')" style="flex: 1; min-width: 80px;">🐱 Cat</button>
-        <button class="add-btn" onclick="window.LandrPetAPI._selectPet('dog')" style="flex: 1; min-width: 80px;">🐶 Dog</button>
-        <button class="add-btn" onclick="window.LandrPetAPI._selectPet('slime')" style="flex: 1; min-width: 80px;">🟢 Slime</button>
-      </div>
-      <div id="petStats" style="display: none;">
-        <div style="margin-bottom: 12px;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-            <span style="font-size: 0.9rem;">🍖 Hunger</span>
-          </div>
-          <div class="stat-bar">
-            <div class="stat-bar-fill hunger-bar" style="width: 100%;"></div>
-          </div>
-        </div>
-        <div style="margin-bottom: 12px;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-            <span style="font-size: 0.9rem;">😊 Happiness</span>
-          </div>
-          <div class="stat-bar">
-            <div class="stat-bar-fill happiness-bar" style="width: 100%;"></div>
-          </div>
-        </div>
+      <h2>🐾 Adopt a Virtual Pet</h2>
+      
+      <div id="petAdoptionForm">
         <div style="margin-bottom: 15px;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-            <span style="font-size: 0.9rem;">⚡ Energy</span>
-          </div>
-          <div class="stat-bar">
-            <div class="stat-bar-fill energy-bar" style="width: 100%;"></div>
+          <label style="display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.9;">Choose Your Pet</label>
+          <select id="petTypeSelect" class="ios-select">
+            ${petTypes.map(pet => `<option value="${pet.id}">${pet.name}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.9;">Pet Name</label>
+          <input type="text" id="petNameInput" class="setting-input" placeholder="e.g., Fluffy" maxlength="20">
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.9;">Your Name</label>
+          <input type="text" id="ownerNameInput" class="setting-input" placeholder="e.g., Alex" maxlength="20">
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+          <label style="display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.9;">Pet Color</label>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <input type="color" id="petColorInput" value="#ffffff" style="width: 60px; height: 40px; border: none; border-radius: 8px; cursor: pointer; background: rgba(255,255,255,0.1);">
+            <input type="text" id="petColorHex" class="setting-input" value="#ffffff" placeholder="#ffffff" maxlength="7" style="flex: 1;">
           </div>
         </div>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button class="add-btn" onclick="window.LandrPetAPI.feedPet()" style="flex: 1; min-width: 70px;">🍖 Feed</button>
-          <button class="add-btn" onclick="window.LandrPetAPI.petPet()" style="flex: 1; min-width: 70px;">❤️ Pet</button>
-          <button class="add-btn" onclick="window.LandrPetAPI.playWithPet()" style="flex: 1; min-width: 70px;">⚽ Play</button>
+        
+        <button class="add-btn" onclick="window.LandrPetAPI._handleAdopt()" style="width: 100%;">🎉 Adopt Pet</button>
+        
+        <div style="margin-top: 15px; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 12px; font-size: 0.85rem; opacity: 0.8;">
+          <strong>ℹ️ About:</strong> Pets are powered by <a href="https://bunnyherolabs.com/adopt/" target="_blank" style="color: var(--accent-color); text-decoration: underline;">BunnyHero Labs</a>. They're interactive Flash pets running via Ruffle emulator!
         </div>
-        <button class="modal-btn secondary" onclick="window.LandrPetAPI._removePet()" style="width: 100%; margin-top: 10px;">Remove Pet</button>
+      </div>
+      
+      <div id="petDisplay" style="display: none;">
+        <div id="petContainer" style="margin-bottom: 15px;"></div>
+        
+        <div style="display: flex; gap: 10px;">
+          <button class="add-btn" onclick="window.open('https://bunnyherolabs.com/adopt/', '_blank')" style="flex: 1;">📖 Learn More</button>
+          <button class="modal-btn secondary" onclick="window.LandrPetAPI.removePet()" style="flex: 1;">🔄 Change Pet</button>
+        </div>
       </div>
     `;
     
     contentGrid.appendChild(widget);
+    
+    // Connect color picker and hex input
+    const colorInput = document.getElementById('petColorInput');
+    const hexInput = document.getElementById('petColorHex');
+    
+    if (colorInput && hexInput) {
+      colorInput.addEventListener('input', function() {
+        hexInput.value = this.value;
+      });
+      
+      hexInput.addEventListener('input', function() {
+        if (/^#[0-9A-F]{6}$/i.test(this.value)) {
+          colorInput.value = this.value;
+        }
+      });
+    }
+    
+    // Load saved pet if exists
+    window.LandrPetAPI.loadPet();
   }
   
   function removePetWidget() {
-    const widget = document.getElementById('petWidget');
-    if (widget) widget.remove();
+    const widget = document.getElementById('bunnyHeroPetWidget');
+    if (widget) {
+      window.LandrPetAPI.removePet();
+      widget.remove();
+    }
   }
   
-  window.LandrPetAPI._selectPet = function(petType) {
-    if (this.currentPet) {
-      this.currentPet.destroy();
+  window.LandrPetAPI._handleAdopt = function() {
+    const petType = document.getElementById('petTypeSelect')?.value;
+    const petName = document.getElementById('petNameInput')?.value.trim();
+    const ownerName = document.getElementById('ownerNameInput')?.value.trim();
+    const color = document.getElementById('petColorHex')?.value.trim();
+    
+    if (!petName) {
+      alert('Please enter a name for your pet!');
+      return;
     }
     
-    const PetClass = this.pets[petType];
-    if (PetClass) {
-      this.currentPet = new PetClass(document.body);
-      
-      const selector = document.getElementById('petSelector');
-      const stats = document.getElementById('petStats');
-      if (selector) selector.style.display = 'none';
-      if (stats) stats.style.display = 'block';
-      
-      this.currentPet.updateStatsDisplay();
-      localStorage.setItem(STORAGE_KEY + '_type', petType);
-    }
-  };
-  
-  window.LandrPetAPI._removePet = function() {
-    if (this.currentPet) {
-      this.currentPet.destroy();
-      this.currentPet = null;
+    if (!ownerName) {
+      alert('Please enter your name!');
+      return;
     }
     
-    const selector = document.getElementById('petSelector');
-    const stats = document.getElementById('petStats');
-    if (selector) selector.style.display = 'flex';
-    if (stats) stats.style.display = 'none';
-    
-    localStorage.removeItem(STORAGE_KEY + '_type');
-    localStorage.removeItem(PET_DATA_KEY);
+    this.adoptPet(petType, petName, ownerName, color);
   };
   
   function addSettingsToggle() {
@@ -541,10 +238,10 @@
     const petSetting = document.createElement('div');
     petSetting.className = 'setting-item';
     petSetting.innerHTML = `
-      <label class="setting-label">Virtual Pet</label>
+      <label class="setting-label">BunnyHero Virtual Pet</label>
       <div class="setting-toggle">
         <span>Enable Pet Widget</span>
-        <div class="toggle-switch" id="petToggle">
+        <div class="toggle-switch" id="bunnyHeroPetToggle">
           <div class="toggle-slider"></div>
         </div>
       </div>
@@ -552,20 +249,13 @@
     
     visualizerSetting.parentNode.insertBefore(petSetting, visualizerSetting.nextSibling);
     
-    const toggle = document.getElementById('petToggle');
+    const toggle = document.getElementById('bunnyHeroPetToggle');
     
     const savedState = localStorage.getItem(STORAGE_KEY);
-    const savedPetType = localStorage.getItem(STORAGE_KEY + '_type');
     
     if (savedState === 'true') {
       toggle.classList.add('active');
       createPetWidget();
-      
-      if (savedPetType) {
-        setTimeout(() => {
-          window.LandrPetAPI._selectPet(savedPetType);
-        }, 100);
-      }
     }
     
     toggle.addEventListener('click', function() {
@@ -577,7 +267,6 @@
       if (isEnabled) {
         createPetWidget();
       } else {
-        window.LandrPetAPI._removePet();
         removePetWidget();
       }
     });
@@ -585,6 +274,7 @@
   
   addSettingsToggle();
   
-  console.log('Interactive Pet Widget loaded! API available at window.LandrPetAPI');
-  console.log('Available pets:', Object.keys(window.LandrPetAPI.pets));
+  console.log('BunnyHero Labs Pet Widget loaded!');
+  console.log('Available pets:', Object.keys(window.LandrPetAPI.petTypes));
+  console.log('API available at window.LandrPetAPI');
 })();
