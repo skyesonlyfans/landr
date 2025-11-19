@@ -40,7 +40,7 @@
 
         widget.innerHTML = `
             <h2 style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
-                <span>💬</span> Secret Chat
+                <span>💬</span> ChatterBox
             </h2>
             
             <!-- Login View -->
@@ -57,7 +57,7 @@
                     font-family: inherit;
                     outline: none;
                 ">
-                <input type="text" id="chatRoomCode" placeholder="6-Char Code (e.g. X92B4A)" maxlength="6" style="
+                <input type="text" id="chatRoomCode" placeholder="Code (e.g. X92B4A)" maxlength="6" style="
                     padding: 12px;
                     background: rgba(255,255,255,0.1);
                     border: 1px solid rgba(255,255,255,0.1);
