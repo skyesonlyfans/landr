@@ -1,280 +1,218 @@
+/* bunny-pets-widget.js
+   Landr addon: BunnyHero Pets widget
+   - Adds a UI widget to insert BunnyHero Labs "adopt" pets into your Landr page.
+   - Uses Ruffle (Flash emulator) when available; falls back to <embed> otherwise.
+   - Persists settings and inserted instances to localStorage.
+*/
+
 (function() {
-  const STORAGE_KEY = 'landrBunnyHeroPet';
-  const PET_CONFIG_KEY = 'landrBunnyHeroPetConfig';
-  
-  // Global Pet API for extensibility
-  window.LandrPetAPI = window.LandrPetAPI || {
-    currentPet: null,
-    petTypes: {},
-    
-    registerPetType: function(id, config) {
-      this.petTypes[id] = config;
-      console.log(`Pet type registered: ${id}`);
-    },
-    
-    getCurrentPet: function() {
-      return this.currentPet;
-    },
-    
-    adoptPet: function(petType, petName, ownerName, color) {
-      if (this.currentPet) {
-        this.removePet();
-      }
-      
-      this.currentPet = {
-        type: petType,
-        name: petName,
-        owner: ownerName,
-        color: color
+  const STORAGE_KEY = 'landrBunnyPetsWidget_v1';
+  const SWF_URL = 'http://petswf.bunnyherolabs.com/adopt/swf/bunny';
+  const ADOPT_PAGE = 'https://bunnyherolabs.com/adopt/';
+  let settings = loadSettings();
+
+  // Utility: safe DOM create
+  function el(tag, attrs = {}, children = []) {
+    const d = document.createElement(tag);
+    for (const k in attrs) {
+      if (k === 'style') d.style.cssText = attrs[k];
+      else if (k.startsWith('on') && typeof attrs[k] === 'function') d.addEventListener(k.slice(2), attrs[k]);
+      else if (k === 'html') d.innerHTML = attrs[k];
+      else d.setAttribute(k, attrs[k]);
+    }
+    children.forEach(c => d.appendChild(c));
+    return d;
+  }
+
+  function saveSettings() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    } catch (e) {
+      console.error('BunnyPetsWidget: save error', e);
+    }
+  }
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {
+      console.error('BunnyPetsWidget: load error', e);
+    }
+    return {
+      enabled: true,
+      useRuffle: true,
+      defaultWidth: 250,
+      defaultHeight: 300,
+      instances: [] // saved inserted pet instances: [{id, options}]
+    };
+  }
+
+  function notify(msg, type='info') {
+    if (typeof LandrAPI !== 'undefined' && LandrAPI.showNotification) {
+      LandrAPI.showNotification(msg, type);
+    } else {
+      console.log('BunnyPetsWidget:', msg);
+    }
+  }
+
+  function ensureRuffleLoaded(callback) {
+    if (!settings.useRuffle) {
+      callback(false);
+      return;
+    }
+
+    if (window.RufflePlayer) {
+      callback(true);
+      return;
+    }
+
+    // Add ruffle from unpkg (try to be polite and only inject once)
+    if (!document.getElementById('ruffle-js')) {
+      const s = document.createElement('script');
+      s.id = 'ruffle-js';
+      s.src = 'https://unpkg.com/@ruffle-rs/ruffle/dist/ruffle.js';
+      s.async = true;
+      s.onload = () => {
+        setTimeout(() => callback(!!window.RufflePlayer), 100);
       };
-      
-      this.embedPet(petType, petName, ownerName, color);
-      this.savePet();
-      
-      const selector = document.getElementById('petAdoptionForm');
-      const display = document.getElementById('petDisplay');
-      if (selector) selector.style.display = 'none';
-      if (display) display.style.display = 'block';
-    },
-    
-    embedPet: function(petType, petName, ownerName, color) {
-      const container = document.getElementById('petContainer');
-      if (!container) return;
-      
-      // Clean color hex (remove # if present)
-      const cleanColor = color.replace('#', '');
-      
-      // BunnyHero Labs embed URL structure
-      const swfFile = this.petTypes[petType]?.swfFile || 'bunny';
-      const embedUrl = `https://petswf.bunnyherolabs.com/adopt/swf/${swfFile}`;
-      
-      // Create iframe embed (works better than Flash/Ruffle in modern browsers)
-      const iframeUrl = `https://bunnyherolabs.com/adopt/showpet.php?cn=${encodeURIComponent(petName)}&an=${encodeURIComponent(ownerName)}&mc=${swfFile}.swf&clr=0x${cleanColor}`;
-      
-      container.innerHTML = `
-        <div style="width: 250px; margin: 0 auto; text-align: center;">
-          <iframe src="${iframeUrl}" width="250" height="300" frameborder="0" scrolling="no" style="border-radius: 15px; background: transparent;"></iframe>
-          <div style="margin-top: 10px; font-size: 0.85rem; opacity: 0.7;">
-            <a href="https://bunnyherolabs.com/adopt/" target="_blank" style="color: var(--text-color); text-decoration: underline;">powered by bunnyhero labs</a>
-          </div>
-        </div>
-      `;
-    },
-    
-    removePet: function() {
-      this.currentPet = null;
-      localStorage.removeItem(PET_CONFIG_KEY);
-      
-      const container = document.getElementById('petContainer');
-      if (container) container.innerHTML = '';
-      
-      const selector = document.getElementById('petAdoptionForm');
-      const display = document.getElementById('petDisplay');
-      if (selector) selector.style.display = 'block';
-      if (display) display.style.display = 'none';
-    },
-    
-    savePet: function() {
-      if (this.currentPet) {
-        localStorage.setItem(PET_CONFIG_KEY, JSON.stringify(this.currentPet));
-      }
-    },
-    
-    loadPet: function() {
-      const saved = localStorage.getItem(PET_CONFIG_KEY);
-      if (saved) {
+      s.onerror = () => {
+        console.warn('BunnyPetsWidget: failed to load Ruffle from CDN.');
+        callback(false);
+      };
+      document.head.appendChild(s);
+    } else {
+      // if script previously injected, wait a moment for it to initialize
+      const waitFor = (tries = 0) => {
+        if (window.RufflePlayer) return callback(true);
+        if (tries > 20) return callback(false);
+        setTimeout(() => waitFor(tries + 1), 150);
+      };
+      waitFor();
+    }
+  }
+
+  // Builds flashvars string from options
+  function buildFlashVars(opt) {
+    // Examples from BunnyHero advanced page: cn (pet name), an (adopter name), clr=0xe8e8e8, tc=0x00ff00
+    const pairs = [];
+    if (opt.petName) pairs.push('cn=' + encodeURIComponent(opt.petName));
+    if (opt.adopter) pairs.push('an=' + encodeURIComponent(opt.adopter));
+    if (opt.clr) pairs.push('clr=' + opt.clr.replace(/^#/, '0x'));
+    if (opt.tc) pairs.push('tc=' + opt.tc.replace(/^#/, '0x'));
+    return pairs.join('&');
+  }
+
+  // Create an element rendering the SWF either via Ruffle or embed tag
+  function createPetElement(opt = {}) {
+    const container = el('div', { class: 'bunny-pet-instance', style: 'display:flex;flex-direction:column;align-items:center;gap:8px;' });
+
+    const swfWrapper = el('div', { style: `width:${opt.width}px;height:${opt.height}px;display:flex;align-items:center;justify-content:center;position:relative;` });
+
+    const flashvars = buildFlashVars(opt);
+
+    function attachRuffle() {
+      try {
+        const ruffle = window.RufflePlayer.newest();
+        const player = ruffle.createPlayer();
+        // player has width/height attributes — use CSS wrapper sizing
+        player.style.width = opt.width + 'px';
+        player.style.height = opt.height + 'px';
+        swfWrapper.appendChild(player);
+        // Ruffle's load expects a URL; append flashvars to a `?` fragment? Ruffle expects the SWF resource only.
+        // Ruffle currently won't accept flashvars via standard query string to SWF in many cases.
+        // We will create an <object> fallback containing flashvars if Ruffle can't set them. But first try load SWF directly.
         try {
-          const pet = JSON.parse(saved);
-          this.currentPet = pet;
-          this.embedPet(pet.type, pet.name, pet.owner, pet.color);
-          
-          const selector = document.getElementById('petAdoptionForm');
-          const display = document.getElementById('petDisplay');
-          if (selector) selector.style.display = 'none';
-          if (display) display.style.display = 'block';
-          
-          return true;
+          player.load(SWF_URL);
+          // Ruffle may not accept flashvars injection — we still include an accessibility note and fallback embed below.
         } catch (e) {
-          console.error('Error loading pet:', e);
+          console.warn('BunnyPetsWidget: Ruffle player.load failed', e);
         }
+      } catch (e) {
+        console.warn('BunnyPetsWidget: could not init Ruffle', e);
       }
-      return false;
     }
-  };
-  
-  // Register BunnyHero Labs pet types
-  const petTypes = [
-    { id: 'bunny', name: '🐰 Bunny', swfFile: 'bunny' },
-    { id: 'cat', name: '🐱 Cat', swfFile: 'cat' },
-    { id: 'dog', name: '🐶 Dog', swfFile: 'dog' },
-    { id: 'hamster', name: '🐹 Hamster', swfFile: 'hamster' },
-    { id: 'chick', name: '🐤 Chick', swfFile: 'chick' },
-    { id: 'pig', name: '🐷 Pig', swfFile: 'pig' },
-    { id: 'fox', name: '🦊 Fox', swfFile: 'fox' },
-    { id: 'sheep', name: '🐑 Sheep', swfFile: 'sheep' },
-    { id: 'fish', name: '🐠 Fish', swfFile: 'fish' },
-    { id: 'bird', name: '🐦 Bird', swfFile: 'bird' },
-    { id: 'monkey', name: '🐵 Monkey', swfFile: 'monkey' },
-    { id: 'penguin', name: '🐧 Penguin', swfFile: 'penguin' },
-    { id: 'hedgehog', name: '🦔 Hedgehog', swfFile: 'hedgehog' },
-    { id: 'ferret', name: '🦦 Ferret', swfFile: 'ferret' },
-    { id: 'sloth', name: '🦥 Sloth', swfFile: 'sloth' },
-    { id: 'llama', name: '🦙 Llama', swfFile: 'llama' }
-  ];
-  
-  petTypes.forEach(pet => {
-    window.LandrPetAPI.registerPetType(pet.id, pet);
-  });
-  
-  function createPetWidget() {
-    const contentGrid = document.querySelector('.content-grid');
-    if (!contentGrid || document.getElementById('bunnyHeroPetWidget')) return;
-    
-    const widget = document.createElement('div');
-    widget.className = 'widget';
-    widget.id = 'bunnyHeroPetWidget';
-    widget.innerHTML = `
-      <h2>🐾 Adopt a Virtual Pet</h2>
-      
-      <div id="petAdoptionForm">
-        <div style="margin-bottom: 15px;">
-          <label style="display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.9;">Choose Your Pet</label>
-          <select id="petTypeSelect" class="ios-select">
-            ${petTypes.map(pet => `<option value="${pet.id}">${pet.name}</option>`).join('')}
-          </select>
-        </div>
-        
-        <div style="margin-bottom: 15px;">
-          <label style="display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.9;">Pet Name</label>
-          <input type="text" id="petNameInput" class="setting-input" placeholder="e.g., Fluffy" maxlength="20">
-        </div>
-        
-        <div style="margin-bottom: 15px;">
-          <label style="display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.9;">Your Name</label>
-          <input type="text" id="ownerNameInput" class="setting-input" placeholder="e.g., Alex" maxlength="20">
-        </div>
-        
-        <div style="margin-bottom: 15px;">
-          <label style="display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.9;">Pet Color</label>
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <input type="color" id="petColorInput" value="#ffffff" style="width: 60px; height: 40px; border: none; border-radius: 8px; cursor: pointer; background: rgba(255,255,255,0.1);">
-            <input type="text" id="petColorHex" class="setting-input" value="#ffffff" placeholder="#ffffff" maxlength="7" style="flex: 1;">
-          </div>
-        </div>
-        
-        <button class="add-btn" onclick="window.LandrPetAPI._handleAdopt()" style="width: 100%;">🎉 Adopt Pet</button>
-        
-        <div style="margin-top: 15px; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 12px; font-size: 0.85rem; opacity: 0.8;">
-          <strong>ℹ️ About:</strong> Pets are powered by <a href="https://bunnyherolabs.com/adopt/" target="_blank" style="color: var(--accent-color); text-decoration: underline;">BunnyHero Labs</a>. They're interactive Flash pets running via Ruffle emulator!
-        </div>
-      </div>
-      
-      <div id="petDisplay" style="display: none;">
-        <div id="petContainer" style="margin-bottom: 15px;"></div>
-        
-        <div style="display: flex; gap: 10px;">
-          <button class="add-btn" onclick="window.open('https://bunnyherolabs.com/adopt/', '_blank')" style="flex: 1;">📖 Learn More</button>
-          <button class="modal-btn secondary" onclick="window.LandrPetAPI.removePet()" style="flex: 1;">🔄 Change Pet</button>
-        </div>
-      </div>
-    `;
-    
-    contentGrid.appendChild(widget);
-    
-    // Connect color picker and hex input
-    const colorInput = document.getElementById('petColorInput');
-    const hexInput = document.getElementById('petColorHex');
-    
-    if (colorInput && hexInput) {
-      colorInput.addEventListener('input', function() {
-        hexInput.value = this.value;
-      });
-      
-      hexInput.addEventListener('input', function() {
-        if (/^#[0-9A-F]{6}$/i.test(this.value)) {
-          colorInput.value = this.value;
-        }
-      });
+
+    function attachEmbed() {
+      // Build embed tag with flashvars
+      const embed = document.createElement('embed');
+      embed.setAttribute('wmode', opt.transparent ? 'transparent' : 'window');
+      embed.src = SWF_URL;
+      embed.width = opt.width;
+      embed.height = opt.height;
+      embed.quality = 'high';
+      embed.bgcolor = (opt.bgcolor || 'ffffff');
+      embed.type = 'application/x-shockwave-flash';
+      if (flashvars) embed.setAttribute('flashvars', flashvars);
+      swfWrapper.appendChild(embed);
     }
-    
-    // Load saved pet if exists
-    window.LandrPetAPI.loadPet();
-  }
-  
-  function removePetWidget() {
-    const widget = document.getElementById('bunnyHeroPetWidget');
-    if (widget) {
-      window.LandrPetAPI.removePet();
-      widget.remove();
-    }
-  }
-  
-  window.LandrPetAPI._handleAdopt = function() {
-    const petType = document.getElementById('petTypeSelect')?.value;
-    const petName = document.getElementById('petNameInput')?.value.trim();
-    const ownerName = document.getElementById('ownerNameInput')?.value.trim();
-    const color = document.getElementById('petColorHex')?.value.trim();
-    
-    if (!petName) {
-      alert('Please enter a name for your pet!');
-      return;
-    }
-    
-    if (!ownerName) {
-      alert('Please enter your name!');
-      return;
-    }
-    
-    this.adoptPet(petType, petName, ownerName, color);
-  };
-  
-  function addSettingsToggle() {
-    const settingsPanel = document.getElementById('settingsPanel');
-    if (!settingsPanel) return;
-    
-    const visualizerSetting = settingsPanel.querySelector('.setting-item:has(#visualizerWidgetToggle)');
-    if (!visualizerSetting) return;
-    
-    const petSetting = document.createElement('div');
-    petSetting.className = 'setting-item';
-    petSetting.innerHTML = `
-      <label class="setting-label">BunnyHero Virtual Pet</label>
-      <div class="setting-toggle">
-        <span>Enable Pet Widget</span>
-        <div class="toggle-switch" id="bunnyHeroPetToggle">
-          <div class="toggle-slider"></div>
-        </div>
-      </div>
-    `;
-    
-    visualizerSetting.parentNode.insertBefore(petSetting, visualizerSetting.nextSibling);
-    
-    const toggle = document.getElementById('bunnyHeroPetToggle');
-    
-    const savedState = localStorage.getItem(STORAGE_KEY);
-    
-    if (savedState === 'true') {
-      toggle.classList.add('active');
-      createPetWidget();
-    }
-    
-    toggle.addEventListener('click', function() {
-      this.classList.toggle('active');
-      const isEnabled = this.classList.contains('active');
-      
-      localStorage.setItem(STORAGE_KEY, isEnabled);
-      
-      if (isEnabled) {
-        createPetWidget();
+
+    if (settings.useRuffle) {
+      // try Ruffle first; if not available attach embed and show message.
+      if (window.RufflePlayer) {
+        attachRuffle();
       } else {
-        removePetWidget();
+        // temporary placeholder until ruffle loads
+        const placeholder = el('div', { style: `width:${opt.width}px;height:${opt.height}px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.08);border-radius:8px;` });
+        placeholder.textContent = 'Loading pet (Ruffle)...';
+        swfWrapper.appendChild(placeholder);
+        ensureRuffleLoaded((loaded) => {
+          swfWrapper.innerHTML = '';
+          if (loaded) attachRuffle();
+          else attachEmbed();
+        });
       }
+    } else {
+      attachEmbed();
+    }
+
+    const caption = el('div', { style: 'font-size:0.85rem;opacity:0.9;text-align:center;' });
+    const nameSpan = el('div', { html: `<strong>${escapeHtml(opt.petName || 'unnamed')}</strong> ${opt.adopter ? ` — adopted by ${escapeHtml(opt.adopter)}` : ''}` });
+    const link = el('a', { href: ADOPT_PAGE, target: '_blank', style: 'font-size:0.8rem;opacity:0.75;text-decoration:underline;margin-top:4px;' });
+    link.textContent = 'Adopt at BunnyHero Labs';
+    caption.appendChild(nameSpan);
+    caption.appendChild(link);
+
+    const controls = el('div', { style: 'display:flex;gap:8px;margin-top:6px;' });
+    const removeBtn = el('button', { style: 'padding:6px 10px;border-radius:8px;border:none;cursor:pointer;background:#ef4444;color:white;font-weight:600;' });
+    removeBtn.textContent = 'Remove';
+    removeBtn.addEventListener('click', function() {
+      container.remove();
+      // Remove from persisted instances if present
+      settings.instances = settings.instances.filter(i => i.id !== opt._id);
+      saveSettings();
+      notify('Pet instance removed', 'info');
+    });
+
+    controls.appendChild(removeBtn);
+
+    container.appendChild(swfWrapper);
+    container.appendChild(caption);
+    container.appendChild(controls);
+
+    return container;
+  }
+
+  // Escape HTML to avoid injection in innerHTML uses
+  function escapeHtml(str) {
+    if (!str && str !== 0) return '';
+    return String(str).replace(/[&<>"'`=\/]/g, function(s) {
+      return ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+        '/': '&#x2F;',
+        '`': '&#x60;',
+        '=': '&#x3D;'
+      })[s];
     });
   }
-  
-  addSettingsToggle();
-  
-  console.log('BunnyHero Labs Pet Widget loaded!');
-  console.log('Available pets:', Object.keys(window.LandrPetAPI.petTypes));
-  console.log('API available at window.LandrPetAPI');
-})();
+
+  // Create the settings UI widget and mount into .content-grid
+  function createWidgetPanel() {
+    // Avoid duplicates
+    if (document.getElementById('bunnyPetsWidget')) return;
+
+    const contentGrid = document.querySelec
