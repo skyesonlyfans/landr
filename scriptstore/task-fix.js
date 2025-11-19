@@ -92,8 +92,6 @@
   // Initialize
   loadTodos();
   
-  if (typeof LandrAPI !== 'undefined') {
-    LandrAPI.showNotification('Task persistence enabled', 'success');
   }
 
 })();
