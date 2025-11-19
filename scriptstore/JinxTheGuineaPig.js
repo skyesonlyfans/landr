@@ -15,19 +15,31 @@
     };
 
     const RUFFLE_SCRIPT = 'https://unpkg.com/@ruffle-rs/ruffle';
-    const ARCHIVE_PREFIX = 'https://web.archive.org/web/20130000000000if_/';
+    
+    // CHANGED: Used 'id_' (raw identity) instead of 'if_' (frame) to prevent HTML injection
+    // CHANGED: Used a concrete timestamp (June 2013) to avoid redirect chains that break CORS
+    const ARCHIVE_PREFIX = 'https://web.archive.org/web/20130614020500id_/';
     const BASE_URL = 'http://bunnyherolabs.com/adopt/swf/';
+
+    // --- Ruffle Config ---
+    // Pre-configure Ruffle to be permissive with cross-origin content
+    window.RufflePlayer = window.RufflePlayer || {};
+    window.RufflePlayer.config = {
+        "publicPath": undefined,
+        "polyfills": true,
+        "allowScriptAccess": true
+    };
 
     // --- Ruffle Loader ---
     function loadRuffle(callback) {
-        if (window.RufflePlayer) {
+        if (window.RufflePlayer && window.RufflePlayer.newest) {
             callback();
             return;
         }
         
         if (document.querySelector(`script[src="${RUFFLE_SCRIPT}"]`)) {
             const check = setInterval(() => {
-                if (window.RufflePlayer) {
+                if (window.RufflePlayer && window.RufflePlayer.newest) {
                     clearInterval(check);
                     callback();
                 }
@@ -51,9 +63,10 @@
         const widget = document.createElement('div');
         widget.id = WIDGET_ID;
         widget.className = 'widget';
+        // Added specific height to ensure the SWF has room
         widget.style.cssText = `
             position: relative;
-            min-height: 350px;
+            height: 380px; 
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -61,9 +74,7 @@
             border: 1px solid rgba(255,255,255,0.2);
         `;
 
-        // Place Jinx at the top of the grid or append
         contentGrid.prepend(widget);
-
         renderJinx(widget);
     }
 
@@ -76,17 +87,21 @@
                 margin-bottom: 15px; 
                 border-bottom: 1px solid rgba(255,255,255,0.1); 
                 padding-bottom: 10px;
+                height: 40px;
             ">
                 <h2 style="margin:0; font-size: 1.5rem;">🐹 Jinx the Guinea Pig</h2>
             </div>
             <div id="jinxContainer" style="
                 flex: 1; 
+                width: 100%;
                 display: flex; 
                 justify-content: center; 
                 align-items: center; 
                 position: relative;
+                background: rgba(0,0,0,0.1);
+                border-radius: 8px;
             ">
-                <div style="color: white; opacity: 0.7; position: absolute;">Waking up Jinx...</div>
+                <div style="color: white; opacity: 0.7; position: absolute;">Loading Jinx...</div>
             </div>
         `;
 
@@ -94,33 +109,30 @@
             const container = widget.querySelector('#jinxContainer');
             if (!container) return;
             
-            // Construct the specific Archive URL for the guinea pig SWF
             const swfUrl = ARCHIVE_PREFIX + BASE_URL + PET_CONFIG.swfFile;
             
-            // Construct FlashVars to recreate the specific customization
-            // We map 'cn' (Creature Name) and 'an' (Adopter Name) which BunnyHeroLabs uses
-            // We also include 'clr' for the custom color
+            // FlashVars: pass customization data to the SWF
             const flashVars = [
                 `mc=${encodeURIComponent(PET_CONFIG.swfFile)}`,
                 `clr=${encodeURIComponent(PET_CONFIG.color)}`,
                 `cn=${encodeURIComponent(PET_CONFIG.name)}`,
                 `an=${encodeURIComponent(PET_CONFIG.owner)}`,
-                // Fallbacks often used by these SWFs
                 `name=${encodeURIComponent(PET_CONFIG.name)}`,
                 `msg=${encodeURIComponent('Owner: ' + PET_CONFIG.owner)}`
             ].join('&');
 
+            // Using <embed> is generally more reliable for Ruffle polyfill detection than object
             const embedHTML = `
                 <embed 
                     src="${swfUrl}" 
-                    width="100%" 
-                    height="100%" 
+                    width="250" 
+                    height="300" 
                     quality="high" 
                     wmode="transparent" 
                     flashvars="${flashVars}"
                     name="jinxwidget"
-                    type="application/x-shockwave-flash"
-                    pluginspage="http://www.macromedia.com/go/getflashplayer">
+                    allowScriptAccess="always"
+                    type="application/x-shockwave-flash">
                 </embed>
             `;
             
