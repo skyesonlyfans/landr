@@ -14,6 +14,9 @@
         
         // Restore original animations
         restoreAnimations();
+        
+        // Remove widget sizing optimization
+        removeWidgetSizing();
       }
     },
     light: {
@@ -35,6 +38,9 @@
         
         // Optimize animations
         optimizeAnimations('light');
+        
+        // Optimize widget sizing
+        optimizeWidgetSizing('light');
       }
     },
     medium: {
@@ -60,6 +66,9 @@
         
         // Reduce backdrop blur
         reduceBlur('medium');
+        
+        // Optimize widget sizing
+        optimizeWidgetSizing('medium');
       }
     },
     aggressive: {
@@ -88,6 +97,9 @@
         
         // Add will-change hints
         addWillChangeHints();
+        
+        // Optimize widget sizing
+        optimizeWidgetSizing('aggressive');
       }
     }
   };
@@ -235,6 +247,212 @@
     document.head.appendChild(style);
   }
   
+  function optimizeWidgetSizing(level) {
+    const style = document.createElement('style');
+    style.id = 'widget-sizing-style';
+    
+    const existing = document.getElementById('widget-sizing-style');
+    if (existing) existing.remove();
+    
+    let css = '';
+    
+    if (level === 'light') {
+      css = `
+        @media (max-width: 768px) {
+          .content-grid {
+            gap: 20px !important;
+          }
+          .widget {
+            padding: 20px !important;
+            min-height: auto !important;
+          }
+          .widget h2 {
+            font-size: 1.5rem !important;
+            margin-bottom: 15px !important;
+          }
+          #visualizerCanvas {
+            height: 150px !important;
+          }
+          .todo-list {
+            max-height: 250px !important;
+          }
+          .quick-links {
+            gap: 15px !important;
+          }
+        }
+      `;
+    } else if (level === 'medium') {
+      css = `
+        @media (max-width: 768px) {
+          .content-grid {
+            gap: 15px !important;
+            grid-template-columns: 1fr !important;
+          }
+          .widget {
+            padding: 18px !important;
+            min-height: auto !important;
+          }
+          .widget h2 {
+            font-size: 1.4rem !important;
+            margin-bottom: 12px !important;
+          }
+          #visualizerCanvas {
+            height: 120px !important;
+          }
+          .visualizer-controls {
+            flex-direction: column !important;
+            gap: 10px !important;
+          }
+          .upload-section {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .todo-list {
+            max-height: 200px !important;
+          }
+          .todo-item {
+            padding: 12px !important;
+            font-size: 0.9rem !important;
+          }
+          .quick-links {
+            gap: 12px !important;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) !important;
+          }
+          .link-card {
+            padding: 15px !important;
+            font-size: 0.9rem !important;
+          }
+          h1 {
+            font-size: 3.5rem !important;
+            margin-bottom: 8px !important;
+          }
+          .clock {
+            font-size: 1.2rem !important;
+            margin-bottom: 30px !important;
+          }
+          .search-container {
+            margin-bottom: 30px !important;
+          }
+          input[type="text"] {
+            padding: 15px 45px 15px 20px !important;
+            font-size: 1rem !important;
+          }
+        }
+      `;
+    } else if (level === 'aggressive') {
+      css = `
+        @media (max-width: 768px) {
+          .content-grid {
+            gap: 12px !important;
+            grid-template-columns: 1fr !important;
+          }
+          .widget {
+            padding: 15px !important;
+            min-height: auto !important;
+            border-radius: 15px !important;
+          }
+          .widget h2 {
+            font-size: 1.3rem !important;
+            margin-bottom: 10px !important;
+          }
+          #visualizerCanvas {
+            height: 100px !important;
+          }
+          .visualizer-controls {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .upload-section {
+            flex-direction: column !important;
+            gap: 6px !important;
+          }
+          .upload-section button,
+          .upload-section label {
+            width: 100% !important;
+            text-align: center !important;
+          }
+          .todo-list {
+            max-height: 180px !important;
+          }
+          .todo-item {
+            padding: 10px !important;
+            font-size: 0.85rem !important;
+            margin-bottom: 6px !important;
+          }
+          .todo-input-container {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+          .todo-input,
+          .add-btn {
+            width: 100% !important;
+          }
+          .quick-links {
+            gap: 10px !important;
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+          .link-card {
+            padding: 12px !important;
+            font-size: 0.85rem !important;
+          }
+          h1 {
+            font-size: 3rem !important;
+            margin-bottom: 5px !important;
+            letter-spacing: -1px !important;
+          }
+          .clock {
+            font-size: 1rem !important;
+            margin-bottom: 25px !important;
+          }
+          .search-container {
+            margin-bottom: 25px !important;
+          }
+          input[type="text"] {
+            padding: 12px 40px 12px 18px !important;
+            font-size: 0.95rem !important;
+          }
+          .controls {
+            top: 15px !important;
+            right: 15px !important;
+            gap: 10px !important;
+          }
+          .control-btn {
+            width: 42px !important;
+            height: 42px !important;
+            font-size: 1.1rem !important;
+          }
+          .container {
+            padding: 10px !important;
+          }
+          body {
+            padding: 15px !important;
+          }
+          /* Optimize large widgets */
+          #emulatorWidget,
+          #marioKartWidget,
+          #flappyBirdWidget {
+            grid-column: 1 !important;
+          }
+          #emulatorWidget > div:first-of-type,
+          #marioKartWidget > div:first-of-type {
+            height: 300px !important;
+          }
+          #flappyCanvas {
+            max-height: 300px !important;
+          }
+        }
+      `;
+    }
+    
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+  
+  function removeWidgetSizing() {
+    const style = document.getElementById('widget-sizing-style');
+    if (style) style.remove();
+  }
+  
   function restoreAnimations() {
     const optimizationStyle = document.getElementById('mobile-optimization-style');
     const blurStyle = document.getElementById('blur-optimization-style');
@@ -254,6 +472,9 @@
     
     // Restore background
     document.body.style.removeProperty('background-size');
+    
+    // Remove widget sizing
+    removeWidgetSizing();
   }
   
   function applyOptimization(level) {
