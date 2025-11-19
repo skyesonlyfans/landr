@@ -9,17 +9,22 @@
     // Ruffle is required because BunnyHeroLabs uses Flash (.swf)
     const RUFFLE_SCRIPT = 'https://unpkg.com/@ruffle-rs/ruffle';
 
-    // Curated list of working pet SWFs for "Quick Adopt"
+    // We must use the Wayback Machine because the original site often returns 404s for hotlinked SWFs
+    // Timestamp 2013 is stable for these assets.
+    const ARCHIVE_PREFIX = 'https://web.archive.org/web/20130000000000if_/';
+    const BASE_URL = 'http://bunnyherolabs.com/adopt/swf/';
+
     const PET_PRESETS = {
-        'penguin': 'https://bunnyherolabs.com/adopt/swf/penguin.swf',
-        'panda': 'https://bunnyherolabs.com/adopt/swf/panda.swf',
-        'fox': 'https://bunnyherolabs.com/adopt/swf/fox.swf',
-        'monkey': 'https://bunnyherolabs.com/adopt/swf/monkey.swf',
-        'puppy': 'https://bunnyherolabs.com/adopt/swf/puppy.swf',
-        'kitty': 'https://bunnyherolabs.com/adopt/swf/kitten.swf',
-        'lion': 'https://bunnyherolabs.com/adopt/swf/lion.swf',
-        'sloth': 'https://bunnyherolabs.com/adopt/swf/sloth.swf',
-        'turtle': 'https://bunnyherolabs.com/adopt/swf/turtle.swf'
+        'penguin': 'penguin.swf',
+        'panda': 'panda.swf',
+        'fox': 'fox.swf',
+        'monkey': 'monkey.swf',
+        'puppy': 'puppy.swf',
+        'kitty': 'kitten.swf',
+        'lion': 'lion.swf',
+        'sloth': 'sloth.swf',
+        'turtle': 'turtle.swf',
+        'horse': 'horse.swf'
     };
 
     // --- Ruffle Loader ---
@@ -29,9 +34,7 @@
             return;
         }
         
-        // Check if script is already appending
         if (document.querySelector(`script[src="${RUFFLE_SCRIPT}"]`)) {
-            // Simple poll to wait for load
             const check = setInterval(() => {
                 if (window.RufflePlayer) {
                     clearInterval(check);
@@ -49,7 +52,6 @@
 
     // --- Widget Creation ---
     function createWidget() {
-        // Avoid duplicates
         if (document.getElementById(WIDGET_ID)) return;
 
         const contentGrid = document.querySelector('.content-grid');
@@ -60,13 +62,12 @@
         widget.className = 'widget';
         widget.style.cssText = `
             position: relative;
-            min-height: 300px;
+            min-height: 350px; /* Increased height for Flash container */
             display: flex;
             flex-direction: column;
             overflow: hidden;
         `;
 
-        // Insert before the visualizer or at the end
         const visualizer = document.getElementById('visualizerWidget');
         if (visualizer) {
             contentGrid.insertBefore(widget, visualizer);
@@ -103,7 +104,7 @@
             <div id="viewQuick" style="display: flex; flex-direction: column; gap: 15px;">
                 <div>
                     <label style="display: block; font-size: 0.9rem; margin-bottom: 5px; opacity: 0.8;">Choose Species</label>
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px;">
                         ${Object.keys(PET_PRESETS).map(pet => `
                             <button class="species-btn" data-pet="${pet}" style="
                                 padding: 8px;
@@ -136,10 +137,10 @@
             <!-- Custom Form -->
             <div id="viewCustom" style="display: none; flex-direction: column; gap: 15px;">
                 <p style="font-size: 0.85rem; opacity: 0.8; line-height: 1.4;">
-                    1. Go to <a href="https://bunnyherolabs.com/adopt/" target="_blank" style="color: var(--accent-color);">BunnyHeroLabs.com</a><br>
-                    2. Customize your pet fully (colors, accessories).<br>
-                    3. Finish and copy the "Embed Code".<br>
-                    4. Paste it below.
+                    To fully customize (colors, items):<br>
+                    1. Visit the <a href="https://web.archive.org/web/20130807091245/http://bunnyherolabs.com/adopt/" target="_blank" style="color: var(--accent-color); text-decoration: underline;">Archived Creator</a>.<br>
+                    2. Create your pet and copy the HTML code.<br>
+                    3. Paste it below (we will fix the broken links automatically).
                 </p>
                 <textarea id="petEmbedInput" placeholder="Paste <object> or <embed> code here..." style="
                     width: 100%;
@@ -193,11 +194,9 @@
                 return;
             }
             const name = widget.querySelector('#petNameInput').value.trim() || 'My Pet';
-            const url = PET_PRESETS[selectedSpecies];
+            // Use the Archive URL
+            const url = ARCHIVE_PREFIX + BASE_URL + PET_PRESETS[selectedSpecies];
             
-            // Construct FlashVars for BunnyHero
-            // Structure typically: swf?name=NAME&...
-            // We save the HTML structure that Ruffle expects
             const embedHTML = `
                 <embed 
                     src="${url}" 
@@ -215,8 +214,8 @@
 
         widget.querySelector('#btnAdoptCustom').onclick = () => {
             const code = widget.querySelector('#petEmbedInput').value.trim();
-            if (!code.includes('bunnyherolabs')) {
-                LandrAPI.showNotification('Invalid code. Make sure it is from BunnyHeroLabs.', 'warning');
+            if (!code.includes('bunnyherolabs') && !code.includes('archive.org')) {
+                LandrAPI.showNotification('Invalid code. Must be from BunnyHeroLabs.', 'warning');
                 return;
             }
             savePet(code);
@@ -244,9 +243,10 @@
                 align-items: center; 
                 background: rgba(0,0,0,0.2); 
                 border-radius: 12px;
-                min-height: 250px;
+                min-height: 300px;
+                position: relative;
             ">
-                <div style="color: white; opacity: 0.7;">Loading Pet...</div>
+                <div style="color: white; opacity: 0.7; position: absolute;">Loading Pet...</div>
             </div>
         `;
 
@@ -257,28 +257,38 @@
             }
         };
 
-        // Inject Ruffle Content
         loadRuffle(() => {
             const container = widget.querySelector('#petContainer');
             if (!container) return;
             
-            // Ruffle Polyfill
-            // We inject the HTML. Ruffle's mutation observer usually picks it up automatically.
             container.innerHTML = config.html;
-            
-            // Force Ruffle scan if it doesn't happen automatically
-            const player = window.RufflePlayer?.newest?.();
-            if (player) {
-                // Sometimes we need to explicitly create the player if the polyfill is tricky
-                // But typically innerHTML injection works if Ruffle is active.
-            }
         });
     }
 
     function savePet(htmlContent) {
-        // Basic sanitization/fixes for the code
-        // Ensure http is https if possible, though Ruffle handles it well.
-        let cleanHtml = htmlContent.replace(/http:\/\/bunnyherolabs/g, 'https://bunnyherolabs');
+        // --- AUTO-REPAIR BROKEN URLs ---
+        // If the user pastes code from the live site (which 404s), we inject the Archive prefix.
+        
+        let cleanHtml = htmlContent;
+        
+        // 1. Ensure https
+        cleanHtml = cleanHtml.replace(/http:\/\/bunnyherolabs/g, 'https://bunnyherolabs');
+        
+        // 2. If it points to bunnyherolabs directly, prepend the Wayback Machine prefix
+        // We use a regex to find src="..." and check if it lacks archive.org
+        const urlRegex = /(src|value)=["'](https?:\/\/bunnyherolabs\.com\/[^"']+)["']/g;
+        
+        cleanHtml = cleanHtml.replace(urlRegex, (match, attr, url) => {
+            if (!url.includes('archive.org')) {
+                return `${attr}="${ARCHIVE_PREFIX}${url}"`;
+            }
+            return match;
+        });
+
+        // 3. Force wmode=transparent if missing (fixes layering issues)
+        if (!cleanHtml.includes('wmode')) {
+             cleanHtml = cleanHtml.replace('<embed ', '<embed wmode="transparent" ');
+        }
 
         const config = {
             active: true,
@@ -292,7 +302,6 @@
     }
 
     // --- Initialize ---
-    // Add styles
     const style = document.createElement('style');
     style.textContent = `
         .pet-tab:hover { opacity: 1 !important; }
